@@ -1,0 +1,9 @@
+node_modules/
+backend/data/
+.env
+*.log
+npm-debug.log*
+.DS_Store
+coverage/
+zap-results/
+semgrep-results/
