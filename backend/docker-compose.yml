@@ -1,0 +1,50 @@
+# VPS BACKEND: API + Postgres en la misma VPC privada.
+# Uso: cp .env.example .env && docker compose up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: posdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Primera creacion del volumen: el entrypoint aplica init.sql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d posdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  db-init:
+    image: postgres:16-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./db/init.sql:/init/init.sql:ro
+    # Idempotente: reaplica tablas + SPs + seed en cada despliegue
+    command: >
+      sh -c "psql 'postgresql://postgres:$${POSTGRES_PASSWORD:-postgres}@db:5432/posdb'
+             -v ON_ERROR_STOP=1 -f /init/init.sql"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # Imagenes fuera de la DB: persisten en disco del servidor
+      - imgdata:/code/uploads
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  imgdata:
