@@ -1,0 +1,73 @@
+# [E5.2: verificación SAST] Reglas personalizadas (AppSec) del portal.
+# Uso: npm run sast (requiere Docker o semgrep local). Ver docs/verificacion.md.
+rules:
+  - id: no-sql-concatenation
+    message: Posible construccion de SQL por concatenacion. Usa prepared statements de better-sqlite3.
+    severity: ERROR
+    languages: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: db.exec("..." + ...)
+          - pattern: db.prepare("..." + ...)
+          - pattern: db.exec(`...${...}...`)
+          - pattern: db.prepare(`...${...}...`)
+    paths:
+      include:
+        - "**/backend/src/**/*.js"
+
+  - id: no-password-or-token-in-log
+    message: No registrar contrasenas ni tokens en logs.
+    severity: ERROR
+    languages: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: logger....(..., $X.password, ...)
+          - pattern: logger....(..., $X.token, ...)
+          - pattern: console.log(..., $X.password, ...)
+    paths:
+      include:
+        - "**/backend/src/**/*.js"
+
+  - id: no-localstorage-secrets
+    message: No guardar secretos en localStorage (usar cookies httpOnly).
+    severity: ERROR
+    languages: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: localStorage.setItem(..., ...)
+          - pattern: sessionStorage.setItem(..., ...)
+    paths:
+      include:
+        - "**/backend/public/**/*.js"
+
+  - id: no-inline-handlers
+    message: Nada de onclick/inline handlers en HTML (CSP sin unsafe-inline).
+    severity: ERROR
+    languages: [generic]
+    patterns:
+      - pattern-regex: 'on(click|submit|load|error|change)\s*='
+    paths:
+      include:
+        - "**/backend/public/**/*.html"
+
+  - id: no-innerhtml-unescaped
+    message: Revisa innerHTML con datos no escapados (usar escapeHtml para prevenir XSS).
+    severity: WARNING
+    languages: [javascript]
+    patterns:
+      - pattern: $EL.innerHTML = ...
+    paths:
+      include:
+        - "**/backend/public/**/*.js"
+
+  - id: no-md5-sha1-password
+    message: No usar MD5/SHA1 para contrasenas (usar bcrypt).
+    severity: ERROR
+    languages: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createHash("md5")
+          - pattern: crypto.createHash("sha1")
+    paths:
+      include:
+        - "**/backend/src/**/*.js"

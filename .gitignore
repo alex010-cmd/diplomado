@@ -23,3 +23,13 @@ dist/
 # Logs and local data
 *.log
 *.sqlite3
+# Existing project exclusions
+node_modules/
+backend/data/
+.env
+*.log
+npm-debug.log*
+.DS_Store
+coverage/
+zap-results/
+semgrep-results/

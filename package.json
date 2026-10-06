@@ -1,0 +1,36 @@
+{
+  "name": "portal-academico-seguro",
+  "version": "1.0.0",
+  "description": "Portal academico de gestion de notas - Proyecto final de ciberseguridad (AppSec, seguridad desde el diseno)",
+  "private": true,
+  "type": "commonjs",
+  "main": "backend/src/server.js",
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "dev": "node --watch backend/src/server.js",
+    "seed": "node backend/src/db/seed.js",
+    "smoke": "node --test backend/test/smoke.test.js",
+    "sast": "bash tools/run-sast.sh",
+    "zap": "bash tools/run-zap.sh",
+    "check": "node --check backend/src/server.js && node --check backend/src/app.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "better-sqlite3": "^11.10.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "pino": "^9.6.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "supertest": "^7.1.0"
+  }
+}
