@@ -36,7 +36,10 @@ services:
   api:
     build: .
     restart: unless-stopped
-    env_file: .env
+    # Si no existe .env no truena Compose: la API avisa que falta JWT_SECRET
+    env_file:
+      - path: .env
+        required: false
     ports:
       - "8000:8000"
     volumes:

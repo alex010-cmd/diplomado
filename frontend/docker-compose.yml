@@ -1,9 +1,25 @@
-# VPS FRONTEND: solo sirve la app React (el backend vive en el otro VPS).
-# Uso: ./start.sh http://10.0.128.10:8000
+# VPS FRONTEND: sirve la app React y proxya /api y /images al backend
+# privado por VPC Peering. El navegador solo habla con este nginx.
+# Uso: ./start.sh http://<IP-PRIVADA-BACK>:8000 [dominio-certbot]
 services:
   web:
     build: .
     restart: unless-stopped
-    env_file: .env # BACKEND_URL=http://<IP-privada-del-BACK>:8000
+    # Si no existe .env, el entrypoint avisa que falta BACKEND_URL
+    env_file:
+      - path: .env
+        required: false
+    # Permite probar en local apuntando al back del host:
+    #   BACKEND_URL=http://host.docker.internal:8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      # Certificados de Certbot (los monta el host) y reto ACME
+      # :z reetiqueta SELinux (Fedora/RHEL y Amazon Linux); inofensivo fuera de SELinux
+      - /etc/letsencrypt:/etc/letsencrypt:ro,z
+      - /var/www/certbot:/var/www/certbot:z
+      # Logs de acceso para Fail2Ban (mismo path en host y contenedor)
+      - /var/log/nginx-host:/var/log/nginx-host:z

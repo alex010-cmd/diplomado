@@ -7,8 +7,7 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    # El JWT viaja SOLO en cookie HttpOnly; nunca en el cuerpo ni en JS.
     username: str
     full_name: str
     role: str

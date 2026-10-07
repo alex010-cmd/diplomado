@@ -77,7 +77,7 @@ export function StoreView({ products, actionLabel, onAction, hideEmpty, showStoc
   const [section, setSection] = useState('Todas')
   const groups = useMemo(() => {
     const g = {}
-    for (const p of products) {
+    for (const p of (Array.isArray(products) ? products : [])) {
       if (hideEmpty && p.stock <= 0) continue
       ;(g[p.category || 'General'] ||= []).push(p)
     }

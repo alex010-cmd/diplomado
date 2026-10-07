@@ -28,7 +28,7 @@ function CartButton({ onClick }) {
 }
 
 function Shell() {
-  const { isAuth, user, token, logout, updateUser } = useAuth()
+  const { isAuth, user, logout, updateUser } = useAuth()
   const cart = useCart()
   const [view, setView] = useState('tienda')
   const [showProfile, setShowProfile] = useState(false)
@@ -77,7 +77,7 @@ function Shell() {
           onSuccess={() => { const f = authCfg.onSuccess; setAuthCfg(null); f && f() }} />
       )}
       {showProfile && isAuth && (
-        <ProfilePopup token={token} onClose={() => setShowProfile(false)}
+        <ProfilePopup onClose={() => setShowProfile(false)}
           onUpdated={(me) => updateUser({ full_name: me.full_name, email: me.email })} />
       )}
       <footer className="foot">

@@ -8,7 +8,7 @@ import { cartPreview, getHolder, myCart, readMirror, release, reserve, writeMirr
 const CartContext = createContext(null)
 
 export function CartProvider({ children }) {
-  const { token, user } = useAuth()
+  const { user } = useAuth()
   const [cart, setCart] = useState({})
   const [loaded, setLoaded] = useState(false)
   const [catalog, setCatalog] = useState([])
@@ -26,7 +26,7 @@ export function CartProvider({ children }) {
     let alive = true
     ;(async () => {
       try {
-        const server = await myCart(token)
+        const server = await myCart()
         const restored = {}
         for (const l of server) restored[l.product_id] = l.qty
         const mirror = readMirror(holder)
@@ -35,7 +35,7 @@ export function CartProvider({ children }) {
           const missing = (qty || 0) - (restored[id] || 0)
           if (missing > 0) {
             try {
-              await reserve(holder, id, missing, token)
+              await reserve(holder, id, missing)
               restored[id] = (restored[id] || 0) + missing
             } catch { /* sin stock: se queda lo del servidor */ }
           }
@@ -58,7 +58,7 @@ export function CartProvider({ children }) {
   // Ticket en vivo (sin vender)
   useEffect(() => {
     if (!items.length || !canShop) { setPreview(null); return }
-    cartPreview(items, token).then(setPreview).catch(() => setPreview(null))
+    cartPreview(items).then(setPreview).catch(() => setPreview(null))
   }, [JSON.stringify(cart), canShop]) // eslint-disable-line
 
   const count = useMemo(() => Object.values(cart).reduce((a, b) => a + b, 0), [cart])
@@ -66,7 +66,7 @@ export function CartProvider({ children }) {
 
   const add = async (p) => {
     setMsg('')
-    await reserve(holder, p.id, 1, token)
+    await reserve(holder, p.id, 1)
     setCart((c) => ({ ...c, [p.id]: (c[p.id] || 0) + 1 }))
     notify()
   }
@@ -74,7 +74,7 @@ export function CartProvider({ children }) {
   const dec = async (p) => {
     const q = cart[p.id] || 0
     if (!q) return
-    await release(holder, p.id, 1, token)
+    await release(holder, p.id, 1)
     setCart((c) => {
       const n = { ...c }
       if ((n[p.id] || 0) <= 1) delete n[p.id]
@@ -86,14 +86,14 @@ export function CartProvider({ children }) {
 
   // Quitar por completo sin importar cuantos tenga
   const removeLine = async (p) => {
-    await release(holder, p.id, null, token)
+    await release(holder, p.id, null)
     setCart((c) => { const n = { ...c }; delete n[p.id]; return n })
     notify()
   }
 
   const clear = async () => {
     for (const pid of Object.keys(cart)) {
-      try { await release(holder, Number(pid), null, token) } catch { /* sigue */ }
+      try { await release(holder, Number(pid), null) } catch { /* sigue */ }
     }
     setCart({})
     notify()

@@ -1,0 +1,16 @@
+[DEFAULT]
+# Bloqueo temporal de IP tras intentos fallidos de autenticacion
+bantime = 600
+findtime = 600
+maxretry = 5
+
+[nginx-login]
+enabled = true
+# Lee el access.log de nginx (volumen /var/log/nginx-host del contenedor)
+logpath = /var/log/nginx-host/access.log
+filter = nginx-login
+# El trafico entra por Docker: el DROP va en la cadena DOCKER-USER
+banaction = docker-iptables
+maxretry = 5
+bantime = 600
+findtime = 600

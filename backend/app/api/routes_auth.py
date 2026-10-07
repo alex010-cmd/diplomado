@@ -1,9 +1,11 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import (APIRouter, Depends, HTTPException, Request, Response,
+                     status)
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 from app.api import deps, sanitize, schemas
 from app.application.auth_service import AuthService
+from app.core.config import settings
 from app.domain.user import User
 from app.infrastructure import pos_repo, rate_limit
 from app.infrastructure.db import get_db
@@ -14,11 +16,29 @@ from app.infrastructure.users_repo import (SpUserRepository, hash_password,
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 log = logging.getLogger("uvicorn.error")
 
+COOKIE_NAME = "access_token"
+
 
 def _service(db: Session) -> AuthService:
     return AuthService(users=SpUserRepository(db),
                        verify_password=verify_password,
                        create_token=create_access_token)
+
+
+def _set_auth_cookie(response: Response, token: str):
+    """Cookie HttpOnly: el JS del navegador no puede leer el token."""
+    response.set_cookie(
+        key=COOKIE_NAME, value=token, httponly=True, samesite="lax",
+        secure=settings.COOKIE_SECURE,
+        max_age=settings.ACCESS_TOKEN_MINUTES * 60, path="/")
+
+
+def _public(result: dict) -> dict:
+    """Quita el token: solo queda la informacion publica del usuario."""
+    result = dict(result)
+    result.pop("access_token", None)
+    result.pop("token_type", None)
+    return result
 
 
 def _client_ip(request: Request) -> str:
@@ -29,7 +49,7 @@ def _client_ip(request: Request) -> str:
 
 
 @router.post("/login", response_model=schemas.LoginResponse)
-def login(body: schemas.LoginRequest, request: Request,
+def login(body: schemas.LoginRequest, request: Request, response: Response,
           db: Session = Depends(get_db)):
     # Limpieza: normaliza y valida antes de consultar (vía SP)
     username = sanitize.clean_username(body.username)
@@ -47,12 +67,13 @@ def login(body: schemas.LoginRequest, request: Request,
                             "Credenciales invalidas")
     rate_limit.register_success(ip)
     log.info("LOGIN OK usuario=%s from %s", username, ip)
-    return result
+    _set_auth_cookie(response, result["access_token"])
+    return _public(result)
 
 
 @router.post("/register", response_model=schemas.LoginResponse,
              status_code=201)
-def register(body: schemas.RegisterRequest,
+def register(body: schemas.RegisterRequest, response: Response,
              db: Session = Depends(get_db)):
     """Registro publico de clientes (para futuros descuentos).
     El invitado compra sin descuento; registrado: 15% en su 1ra compra."""
@@ -74,7 +95,15 @@ def register(body: schemas.RegisterRequest,
         raise HTTPException(409, "Ese usuario ya existe")
     result = _service(db).login(username, password)
     log.info("REGISTER cliente=%s", username)
-    return result
+    _set_auth_cookie(response, result["access_token"])
+    return _public(result)
+
+
+@router.post("/logout")
+def logout(response: Response):
+    """Cierra la sesion: borra la cookie HttpOnly."""
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return {"ok": True}
 
 
 @router.get("/users")

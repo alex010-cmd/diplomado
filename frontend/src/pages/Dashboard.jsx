@@ -22,7 +22,7 @@ function Kpis({ kpis }) {
 
 // ================= DASHBOARD ADMIN =================
 export function AdminDash() {
-  const { user, token } = useAuth()
+  const { user } = useAuth()
   const [dash, setDash] = useState(null)
   const [products, setProducts] = useState([])
   const [alerts, setAlerts] = useState([])
@@ -48,14 +48,15 @@ export function AdminDash() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const load = async () => {
-    setDash(await fetchDashboard(token))
-    setProducts(await fetchProducts(token))
-    setAlerts(await fetchLowStock(token))
-    setSales(await fetchSales(token))
-    setDiscounts(await fetchDiscounts(token))
-    setUsage(await fetchImageUsage(token))
-    setDepartments(await fetchDepartments(token))
-    setDeptCounts(await fetchDepartmentCounts(token))
+    setDash(await fetchDashboard())
+    const guard = await fetchProducts()
+    setProducts(Array.isArray(guard) ? guard : [])
+    setAlerts(await fetchLowStock())
+    setSales(await fetchSales())
+    setDiscounts(await fetchDiscounts())
+    setUsage(await fetchImageUsage())
+    setDepartments(await fetchDepartments())
+    setDeptCounts(await fetchDepartmentCounts())
   }
   useEffect(() => { load().catch((e) => setEmsg(e.message)) }, [])
 
@@ -76,7 +77,7 @@ export function AdminDash() {
     if (!restockTarget) { setEmsg('Elige el producto'); return }
     if (!qty || qty <= 0) { setEmsg('Cantidad invalida'); return }
     try {
-      const updated = await addStock(token, restockTarget, qty)
+      const updated = await addStock(restockTarget, qty)
       setMsg(`Stock actualizado: ${updated.name} +${qty} = ${updated.stock} piezas`)
       setShowRestock(false)
       setRestockQty('')
@@ -92,8 +93,8 @@ export function AdminDash() {
   const newProduct = async (e) => {
     e.preventDefault()
     try {
-      const r = await createProduct(token, { name: np.name, price: Number(np.price), stock: Number(np.stock) || 0, category: np.category, description: np.description })
-      if (newFile) await uploadProductImage(token, r.id, newFile)
+      const r = await createProduct( { name: np.name, price: Number(np.price), stock: Number(np.stock) || 0, category: np.category, description: np.description })
+      if (newFile) await uploadProductImage(r.id, newFile)
       setMsg('Producto creado (SKU autoasignado)'); setNp({ name: '', price: '', stock: '', category: '', description: '' })
       setNewFile(null); setShowNew(false); load()
     } catch (e2) { setEmsg(e2.message) }
@@ -101,15 +102,15 @@ export function AdminDash() {
 
   const saveEdit = async (p) => {
     try {
-      await updateProduct(token, p.id, { name: ep.name, price: Number(ep.price), description: ep.description })
-      if (editFile) await uploadProductImage(token, p.id, editFile)
+      await updateProduct(p.id, { name: ep.name, price: Number(ep.price), description: ep.description })
+      if (editFile) await uploadProductImage(p.id, editFile)
       setMsg(`Producto actualizado: ${ep.name}`); setEditing(null); setEditFile(null); load()
     } catch (e2) { setEmsg(e2.message) }
   }
 
   const removeImage = async (p) => {
     try {
-      await updateProduct(token, p.id, { image_url: '' })
+      await updateProduct(p.id, { image_url: '' })
       setMsg(`Imagen eliminada: ${p.name}`); setEditing(null); load()
     } catch (e2) { setEmsg(e2.message) }
   }
@@ -117,7 +118,7 @@ export function AdminDash() {
   const newDiscount = async (e) => {
     e.preventDefault()
     try {
-      await setDiscount(token, nd.scope, nd.target, Number(nd.percent))
+      await setDiscount(nd.scope, nd.target, Number(nd.percent))
       setMsg(`Descuento ${nd.percent}% aplicado a ${nd.scope} "${nd.target}"`)
       setNd({ scope: 'seccion', target: '', percent: '' })
       load()
@@ -237,10 +238,10 @@ export function AdminDash() {
             {discounts.map((d) => (
               <div key={d.id}>
                 {d.scope} "{d.target}" — <b>{d.percent}%</b> [{d.active ? 'activo' : 'inactivo'}]
-                {' '}<button onClick={() => toggleDiscount(token, d.id, !d.active).then(load).catch((e) => setEmsg(e.message))}>
+                {' '}<button onClick={() => toggleDiscount(d.id, !d.active).then(load).catch((e) => setEmsg(e.message))}>
                   {d.active ? 'Desactivar' : 'Activar'}
                 </button>
-                {' '}<button onClick={() => deleteDiscount(token, d.id).then(load).catch((e) => setEmsg(e.message))}>Eliminar</button>
+                {' '}<button onClick={() => deleteDiscount(d.id).then(load).catch((e) => setEmsg(e.message))}>Eliminar</button>
               </div>
             ))}
           </div>
@@ -286,19 +287,19 @@ export function AdminDash() {
 
 // ================= DASHBOARD CLIENTE =================
 export function ClienteDash({ go }) {
-  const { user, token } = useAuth()
+  const { user } = useAuth()
   const [sales, setSales] = useState([])
   const [profile, setProfile] = useState(null)
   const [emsg, setEmsg] = useState('')
   const [ticket, setTicket] = useState(null)
 
   useEffect(() => {
-    fetchSales(token).then(setSales).catch((e) => setEmsg(e.message))
-    fetchMe(token).then((me) => setProfile(me)).catch(() => {})
+    fetchSales().then(setSales).catch((e) => setEmsg(e.message))
+    fetchMe().then((me) => setProfile(me)).catch(() => {})
   }, [])
 
   const verTicket = async (id) => {
-    try { setTicket(await fetchTicket(token, id)) }
+    try { setTicket(await fetchTicket(id)) }
     catch (e) { setEmsg(e.message) }
   }
 

@@ -1,29 +1,30 @@
 // Capa de servicios: unico punto de comunicacion con el Backend.
-// En produccion VITE_API_URL = IP privada del backend (peering) o dominio.
-// Prioridad: 1) /env.js generado al arrancar (BACKEND_URL, sin rebuild),
-// 2) VITE_API_URL de build, 3) localhost (dev).
-export const API_URL =
-  (typeof window !== 'undefined' && window.__API_URL) ||
-  import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// La sesion viaja en una cookie HttpOnly (credentials: 'include'):
+// el token JWT NUNCA se guarda ni se lee desde JS/localStorage.
+// En produccion el navegador usa el MISMO ORIGEN (/api, /images) y el
+// nginx del front proxya al backend privado. No hay IPs por defecto.
+const runtimeUrl = (typeof window !== 'undefined' && typeof window.__API_URL === 'string')
+  ? window.__API_URL
+  : undefined
+export const API_URL = runtimeUrl !== undefined
+  ? runtimeUrl
+  : (import.meta.env.VITE_API_URL || '')
+const API_BASE = API_URL.replace(/\/+$/, '')
 
-// Las imagenes viven en disco del backend (/images/...), no en la DB.
-// Esta funcion resuelve rutas relativas contra el backend.
+// Las imagenes viven en disco del backend (/images/...), no en la DB:
+// mismo origen si hay proxy, o contra API_BASE si se configuro una URL.
 export const resolveImg = (image_url) => {
   if (!image_url) return ''
   if (/^https?:\/\//i.test(image_url)) return image_url
-  if (image_url.startsWith('/')) return `${API_URL}${image_url}`
+  if (image_url.startsWith('/')) return `${API_BASE}${image_url}`
   return image_url
 }
 
-const authH = (token) => ({
-  'Content-Type': 'application/json',
-  ...(token ? { Authorization: `Bearer ${token}` } : {})
-})
-
-async function req(path, { method = 'GET', body, token } = {}) {
-  const res = await fetch(`${API_URL}${path}`, {
+async function req(path, { method = 'GET', body } = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
     method,
-    headers: authH(token),
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {})
   })
   const data = await res.json().catch(() => ({}))
@@ -39,52 +40,52 @@ export const loginRequest = (u, p) =>
 export const registerRequest = (u, p, full_name, email) =>
   req('/api/auth/register', { method: 'POST', body: { username: u, password: p, full_name, email } })
 
-export const updateProfile = (token, data) =>
-  req('/api/auth/me', { method: 'PATCH', body: data, token })
-export const changePassword = (token, current_password, new_password) =>
-  req('/api/auth/password', { method: 'POST', body: { current_password, new_password }, token })
+export const logoutRequest = () => req('/api/auth/logout', { method: 'POST' })
 
-export const fetchMe = (token) => req('/api/auth/me', { token })
-export const fetchUsers = (token) => req('/api/auth/users', { token })
+export const updateProfile = (data) =>
+  req('/api/auth/me', { method: 'PATCH', body: data })
+export const changePassword = (current_password, new_password) =>
+  req('/api/auth/password', { method: 'POST', body: { current_password, new_password } })
+
+export const fetchMe = () => req('/api/auth/me')
+export const fetchUsers = () => req('/api/auth/users')
 
 export const fetchAvailable = () => req('/api/products/available')
-export const fetchProducts = (token) => req('/api/products', { token })
-export const createProduct = (token, data) =>
-  req('/api/products', { method: 'POST', body: data, token })
-// Reabasto admin: fija stock final = actual + cantidad (sin limite)
-export const addStock = (token, product, qty) =>
+export const fetchProducts = () => req('/api/products')
+export const createProduct = (data) =>
+  req('/api/products', { method: 'POST', body: data })
+export const updateProduct = (id, data) =>
+  req(`/api/products/${id}`, { method: 'PATCH', body: data })
+export const addStock = (product, qty) =>
   req(`/api/products/${product.id}/stock`, {
-    method: 'PATCH', body: { stock: product.stock + qty }, token
+    method: 'PATCH', body: { stock: product.stock + qty }
   })
-export const updateProduct = (token, id, data) =>
-  req(`/api/products/${id}`, { method: 'PATCH', body: data, token })
 
-export const uploadProductImage = async (token, id, file) => {
+export const uploadProductImage = async (id, file) => {
   const fd = new FormData()
   fd.append('file', file)
-  const res = await fetch(`${API_URL}/api/products/${id}/image`, {
-    method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd
+  const res = await fetch(`${API_BASE}/api/products/${id}/image`, {
+    method: 'POST', credentials: 'include', body: fd
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.detail || 'No se pudo subir la imagen')
   return data
 }
-export const fetchImageUsage = (token) =>
-  req('/api/images/usage', { token })
+export const fetchImageUsage = () => req('/api/images/usage')
 
-export const checkout = (items, token, holder, pay_method) =>
-  req('/api/sales/checkout', { method: 'POST', body: { items, holder, pay_method }, token })
+export const checkout = (items, holder, pay_method) =>
+  req('/api/sales/checkout', { method: 'POST', body: { items, holder, pay_method } })
 
-export const cartPreview = (items, token) =>
-  req('/api/cart/preview', { method: 'POST', body: { items }, token })
+export const cartPreview = (items) =>
+  req('/api/cart/preview', { method: 'POST', body: { items } })
 
-export const reserve = (holder, product_id, qty, token) =>
-  req('/api/cart/reserve', { method: 'POST', body: { holder, product_id, qty }, token })
-export const release = (holder, product_id, qty, token) =>
-  req('/api/cart/release', { method: 'POST', body: { holder, product_id, qty }, token })
-export const myCart = (token) => req('/api/cart/mine', { token })
-export const migrateCart = (token, from_holder) =>
-  req('/api/cart/migrate', { method: 'POST', body: { from_holder }, token })
+export const reserve = (holder, product_id, qty) =>
+  req('/api/cart/reserve', { method: 'POST', body: { holder, product_id, qty } })
+export const release = (holder, product_id, qty) =>
+  req('/api/cart/release', { method: 'POST', body: { holder, product_id, qty } })
+export const myCart = () => req('/api/cart/mine')
+export const migrateCart = (from_holder) =>
+  req('/api/cart/migrate', { method: 'POST', body: { from_holder } })
 
 // Espejo local del carrito (el servidor es la verdad via reservas).
 // Sirve para reintentar lo pendiente si la reserva expiro (30 min).
@@ -96,20 +97,20 @@ export const writeMirror = (holder, cart) => {
   try { localStorage.setItem(cartKey(holder), JSON.stringify(cart)) } catch { /* lleno */ }
 }
 
-export const fetchSales = (token) => req('/api/sales', { token })
-export const fetchTicket = (token, saleId) => req(`/api/sales/${saleId}/ticket`, { token })
-export const fetchDashboard = (token) => req('/api/dashboard', { token })
+export const fetchSales = () => req('/api/sales')
+export const fetchTicket = (saleId) => req(`/api/sales/${saleId}/ticket`)
+export const fetchDashboard = () => req('/api/dashboard')
 
-export const fetchLowStock = (token) => req('/api/low-stock', { token })
-export const fetchDepartments = (token) => req('/api/departments', { token })
-export const fetchDepartmentCounts = (token) => req('/api/departments/counts', { token })
-export const fetchDiscounts = (token) => req('/api/discounts', { token })
-export const setDiscount = (token, scope, target, percent) =>
-  req('/api/discounts', { method: 'POST', body: { scope, target, percent }, token })
-export const toggleDiscount = (token, id, active) =>
-  req(`/api/discounts/${id}`, { method: 'PATCH', body: { active }, token })
-export const deleteDiscount = (token, id) =>
-  req(`/api/discounts/${id}`, { method: 'DELETE', token })
+export const fetchLowStock = () => req('/api/low-stock')
+export const fetchDepartments = () => req('/api/departments')
+export const fetchDepartmentCounts = () => req('/api/departments/counts')
+export const fetchDiscounts = () => req('/api/discounts')
+export const setDiscount = (scope, target, percent) =>
+  req('/api/discounts', { method: 'POST', body: { scope, target, percent } })
+export const toggleDiscount = (id, active) =>
+  req(`/api/discounts/${id}`, { method: 'PATCH', body: { active } })
+export const deleteDiscount = (id) =>
+  req(`/api/discounts/${id}`, { method: 'DELETE' })
 
 // Identificador del carrito: estable por usuario, aleatorio para invitado.
 // Las reservas de stock en la DB se ligan a este holder.
@@ -122,4 +123,3 @@ export function getHolder(user) {
   }
   return g
 }
-

@@ -12,7 +12,7 @@ export function Privacy({ go }) {
         <li>La direccion solo se usa para la entrega de productos.</li>
         <li>No compartimos tus datos con terceros con fines publicitarios.</li>
         <li>Puedes pedir la correccion o eliminacion de tus datos en tu perfil o con el administrador.</li>
-        <li>Las credenciales y tokens viajan cifrados por HTTPS y las sesiones usan JWT con expiracion.</li>
+        <li>Las credenciales viajan cifradas por HTTPS y la sesion usa JWT en una cookie HttpOnly (el JavaScript de la pagina nunca puede leerla), con expiracion de 15 minutos.</li>
       </ul>
       <button className="btn-primary" onClick={() => go('tienda')}>Volver a la tienda</button>
     </div></div>

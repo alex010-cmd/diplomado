@@ -8,7 +8,7 @@ import { Ticket } from '../components/Ticket.jsx'
 
 // Tienda: catalogo publico (solo existencias). Comprar exige cuenta de cliente.
 export function Tienda({ go, openAuth }) {
-  const { token, user, markFirstPurchaseDone } = useAuth()
+  const { user, markFirstPurchaseDone } = useAuth()
   const cart = useCart()
   const [products, setProducts] = useState([])
   const [ticket, setTicket] = useState(null)
@@ -16,7 +16,9 @@ export function Tienda({ go, openAuth }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const refresh = () => fetchAvailable().then(setProducts).catch((e) => setError(e.message))
+  const refresh = () => fetchAvailable()
+    .then((d) => setProducts(Array.isArray(d) ? d : []))
+    .catch((e) => setError(e.message))
   useEffect(() => { refresh() }, [])
   // El carrito global refresca el catalogo tras cada operacion
   useEffect(() => { cart.registerChange(refresh) }, []) // eslint-disable-line
@@ -26,8 +28,8 @@ export function Tienda({ go, openAuth }) {
   const pay = async (items, pay_method) => {
     setError(''); setBusy(true)
     try {
-      const sale = await checkout(items, token, undefined, pay_method)
-      const t = await fetchTicket(token, sale.id)
+      const sale = await checkout(items, undefined, pay_method)
+      const t = await fetchTicket(sale.id)
       setTicket(t)
       setTicketLines(t.items)
       if (sale.discount > 0) markFirstPurchaseDone()

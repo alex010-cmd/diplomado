@@ -3,7 +3,7 @@ import { changePassword, fetchMe, updateProfile } from '../services/api.js'
 
 // Popup centrado "Mi perfil" (engrane): mismo estilo que los demas popups.
 // Admin: formulario de ajustes exacto. Cliente: su informacion + sus ajustes.
-export function ProfilePopup({ token, onClose, onUpdated }) {
+export function ProfilePopup({ onClose, onUpdated }) {
   const [form, setForm] = useState({ full_name: '', email: '', address: '' })
   const [info, setInfo] = useState(null)
   const [pw, setPw] = useState({ current_password: '', new_password: '' })
@@ -11,7 +11,7 @@ export function ProfilePopup({ token, onClose, onUpdated }) {
   const [emsg, setEmsg] = useState('')
 
   useEffect(() => {
-    fetchMe(token).then((me) => {
+    fetchMe().then((me) => {
       setInfo(me)
       setForm({ full_name: me.full_name || '', email: me.email || '', address: me.address || '' })
     }).catch((e) => setEmsg(e.message))
@@ -20,7 +20,7 @@ export function ProfilePopup({ token, onClose, onUpdated }) {
   const save = async (e) => {
     e.preventDefault(); setEmsg(''); setMsg('')
     try {
-      const me = await updateProfile(token, form)
+      const me = await updateProfile(form)
       setInfo(me); setMsg('Perfil actualizado.')
       onUpdated && onUpdated(me)
     } catch (e2) { setEmsg(e2.message) }
@@ -29,7 +29,7 @@ export function ProfilePopup({ token, onClose, onUpdated }) {
   const savePw = async (e) => {
     e.preventDefault(); setEmsg(''); setMsg('')
     try {
-      await changePassword(token, pw.current_password, pw.new_password)
+      await changePassword(pw.current_password, pw.new_password)
       setMsg('Contrasena actualizada.')
       setPw({ current_password: '', new_password: '' })
     } catch (e2) { setEmsg(e2.message) }
