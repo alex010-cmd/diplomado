@@ -11,7 +11,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Primera creacion del volumen: el entrypoint aplica init.sql
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # :z = reetiqueta SELinux (Fedora/RHEL); sin esto da Permission denied
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro,z
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d posdb"]
       interval: 5s
@@ -24,13 +25,13 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ./db/init.sql:/init/init.sql:ro
-    # Idempotente: reaplica tablas + SPs + seed en cada despliegue
-    command: >
-      sh -c "psql 'postgresql://postgres:$${POSTGRES_PASSWORD:-postgres}@db:5432/posdb'
-             -v ON_ERROR_STOP=1 -f /init/init.sql"
+      - ./db/init.sql:/init/init.sql:ro,z
+    # Idempotente: reaplica tablas + SPs + seed en cada despliegue.
+    # PGPASSWORD evita romper con claves con #,@,/,espacios (no va en la URL).
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    command: ["psql", "-h", "db", "-U", "postgres", "-d", "posdb",
+              "-v", "ON_ERROR_STOP=1", "-f", "/init/init.sql"]
 
   api:
     build: .

@@ -70,6 +70,17 @@ def clean_image_url(value: object) -> str:
     return v
 
 
+def clean_description(value: object, required: bool = False) -> str:
+    v = str(value or "").strip()
+    if not v:
+        if required:
+            raise HTTPException(400, "Caracteristicas invalidas")
+        return ""
+    if len(v) > 300 or _CONTROL_RE.search(v):
+        raise HTTPException(400, "Caracteristicas invalidas (max 300)")
+    return v
+
+
 def clean_holder(value: object) -> str:
     v = str(value or "").strip()
     if not _HOLDER_RE.match(v):

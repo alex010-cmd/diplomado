@@ -2,7 +2,7 @@ import React from 'react'
 
 export function Privacy({ go }) {
   return (
-    <div style={s.wrap}>
+    <div className="page"><div className="card">
       <h2>Politica de Privacidad</h2>
       <p>Mini-Market recaba unicamente los datos necesarios para operar la tienda:
       nombre, correo electronico, direccion de entrega e historial de compras.</p>
@@ -14,14 +14,14 @@ export function Privacy({ go }) {
         <li>Puedes pedir la correccion o eliminacion de tus datos en tu perfil o con el administrador.</li>
         <li>Las credenciales y tokens viajan cifrados por HTTPS y las sesiones usan JWT con expiracion.</li>
       </ul>
-      <button onClick={() => go('tienda')}>Volver a la tienda</button>
-    </div>
+      <button className="btn-primary" onClick={() => go('tienda')}>Volver a la tienda</button>
+    </div></div>
   )
 }
 
 export function Terms({ go }) {
   return (
-    <div style={s.wrap}>
+    <div className="page"><div className="card">
       <h2>Terminos y Condiciones</h2>
       <ul>
         <li>Precios en MXN; el stock mostrado es la disponibilidad real al momento de agregar al carrito.</li>
@@ -33,9 +33,7 @@ export function Terms({ go }) {
         <li>El sistema avisa al administrador cuando un producto baja de 5 piezas; el reabastecimiento lo gestiona el administrador.</li>
         <li>El uso indebido de cuentas puede suspender el acceso.</li>
       </ul>
-      <button onClick={() => go('tienda')}>Volver a la tienda</button>
-    </div>
+      <button className="btn-primary" onClick={() => go('tienda')}>Volver a la tienda</button>
+    </div></div>
   )
 }
-
-const s = { wrap: { padding: 24, background: '#f1f5f9', minHeight: '100vh', maxWidth: 720 } }

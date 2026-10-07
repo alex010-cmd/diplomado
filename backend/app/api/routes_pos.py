@@ -16,6 +16,20 @@ def products(db: Session = Depends(get_db),
     return pos_repo.list_products(db)
 
 
+@router.get("/departments", response_model=list[dict])
+def departments(db: Session = Depends(get_db),
+                 current: User = Depends(deps.get_current_user)):
+    """Areas de la tienda (para el alta de productos del admin)."""
+    return pos_repo.list_departments(db)
+
+
+@router.get("/departments/counts", response_model=list[dict])
+def departments_counts(db: Session = Depends(get_db),
+                       current: User = Depends(deps.require_roles("admin"))):
+    """Departamentos con total de productos (popup de descuentos)."""
+    return pos_repo.departments_with_counts(db)
+
+
 @router.get("/products/available", response_model=list[schemas.ProductOut])
 def products_available(db: Session = Depends(get_db)):
     """Catalogo publico: solo existencias (lo que ve el cliente)."""
@@ -27,16 +41,22 @@ def create_product(body: schemas.ProductCreate,
                    db: Session = Depends(get_db),
                    current: User = Depends(deps.require_roles("admin"))):
     name = sanitize.clean_text(body.name, "Nombre", 120)
-    sku = sanitize.clean_sku(body.sku)
-    category = sanitize.clean_text(body.category or "General",
-                                   "Categoria", 60)
+    # SKU autoasignado (depto + producto + stock); solo se valida si se envia
+    sku = (sanitize.clean_sku(body.sku)
+           if (body.sku or "").strip() else None)
+    if not (body.category or "").strip():
+        raise HTTPException(400, "Elige el departamento del producto")
+    category = sanitize.clean_text(body.category, "Departamento", 60)
     image_url = sanitize.clean_image_url(body.image_url or "")
+    description = sanitize.clean_description(body.description or "",
+                                             required=True)
     if not (0 <= body.price <= 9999999):
         raise HTTPException(400, "Precio invalido")
     if not (0 <= body.stock <= 999999999):
         raise HTTPException(400, "Stock invalido")
     pid = pos_repo.create_product(db, name, sku, float(body.price),
-                                  int(body.stock), category, image_url)
+                                  int(body.stock), category, image_url,
+                                  description)
     return {"id": pid}
 
 
@@ -56,7 +76,10 @@ def update_product(product_id: int, body: schemas.ProductUpdate,
         price = float(body.price)
     image_url = (sanitize.clean_image_url(body.image_url)
                  if body.image_url is not None else None)
-    return pos_repo.update_product(db, product_id, name, price, image_url)
+    description = (sanitize.clean_description(body.description)
+                   if body.description is not None else None)
+    return pos_repo.update_product(db, product_id, name, price, image_url,
+                                   description)
 
 
 @router.patch("/products/{product_id}/stock")
@@ -69,11 +92,19 @@ def set_stock(product_id: int, body: schemas.StockUpdate,
     return pos_repo.set_stock(db, product_id, int(body.stock))
 
 
+def _only_client(current: User) -> User:
+    # Comprar exige cuenta: solo cliente registrado (ni invitado ni admin).
+    if current.role != "cliente":
+        raise HTTPException(403, "Inicia sesion con tu cuenta de cliente")
+    return current
+
+
 @router.post("/cart/reserve")
 def cart_reserve(body: schemas.CartOp, db: Session = Depends(get_db),
-                 buyer: User | None = Depends(deps.get_optional_user)):
+                 current: User = Depends(deps.require_roles("cliente"))):
     """Agregar al carrito: aparta stock en la DB (evita duplicados/-1)."""
-    holder = sanitize.clean_holder(body.holder)
+    _only_client(current)
+    holder = f"u:{current.username}"
     if body.product_id <= 0 or not body.qty or not (1 <= body.qty <= 999):
         raise HTTPException(400, "Cantidad invalida")
     return pos_repo.reserve(db, holder, body.product_id, body.qty)
@@ -81,9 +112,10 @@ def cart_reserve(body: schemas.CartOp, db: Session = Depends(get_db),
 
 @router.post("/cart/release")
 def cart_release(body: schemas.CartOp, db: Session = Depends(get_db),
-                 buyer: User | None = Depends(deps.get_optional_user)):
+                 current: User = Depends(deps.require_roles("cliente"))):
     """Quitar del carrito: devuelve stock (linea completa si qty es null)."""
-    holder = sanitize.clean_holder(body.holder)
+    _only_client(current)
+    holder = f"u:{current.username}"
     if body.product_id <= 0:
         raise HTTPException(400, "Producto invalido")
     if body.qty is not None and not (1 <= body.qty <= 999):
@@ -102,32 +134,48 @@ def _clean_items(body_items) -> list[dict]:
     return items
 
 
+@router.get("/cart/mine")
+def cart_mine(db: Session = Depends(get_db),
+              current: User = Depends(deps.require_roles("cliente"))):
+    """Carrito persistente del cliente (sobrevive navegacion y logout)."""
+    _only_client(current)
+    return pos_repo.my_cart(db, f"u:{current.username}")
+
+
+@router.post("/cart/migrate")
+def cart_migrate(body: schemas.MigrateRequest, db: Session = Depends(get_db),
+                 current: User = Depends(deps.get_current_user)):
+    """Al iniciar sesion: mueve lo de invitado (g:xxx) a mi cuenta."""
+    if current.role != "cliente":
+        raise HTTPException(403, "Solo los clientes tienen carrito")
+    from_holder = sanitize.clean_holder(body.from_holder)
+    if not from_holder.startswith("g:"):
+        raise HTTPException(400, "Origen invalido")
+    return pos_repo.move_cart(db, from_holder, f"u:{current.username}")
+
+
 @router.post("/cart/preview", response_model=dict)
 def cart_preview(body: schemas.PreviewRequest,
                  db: Session = Depends(get_db),
-                 buyer: User | None = Depends(deps.get_optional_user)):
+                 current: User = Depends(deps.require_roles("cliente"))):
     """Ticket en vivo del carrito: total, descuentos e IVA sin vender."""
-    return pos_repo.preview(db, _clean_items(body.items),
-                            buyer.id if buyer else None)
+    _only_client(current)
+    return pos_repo.preview(db, _clean_items(body.items), current.id)
 
 
 @router.post("/sales/checkout", response_model=dict, status_code=201)
 def checkout(body: schemas.CheckoutRequest,
              db: Session = Depends(get_db),
-             buyer: User | None = Depends(deps.get_optional_user)):
-    """Compra: invitado (sin descuento) o usuario logueado.
-    Cliente registrado en su 1ra compra: 15% automatico en la DB.
-    La tarjeta NUNCA llega aqui: solo el metodo de pago."""
+             current: User = Depends(deps.require_roles("cliente"))):
+    """Compra solo con cuenta de cliente (invitado y admin bloqueados).
+    1ra compra: 15% automatico. La tarjeta NUNCA llega aqui."""
+    _only_client(current)
     items = _clean_items(body.items)
-    buyer_name = sanitize.clean_text(body.buyer_name or "invitado",
-                                     "Comprador", 120)
-    holder = sanitize.clean_holder(body.holder) if body.holder else ""
+    holder = f"u:{current.username}"
     pay_method = sanitize.clean_pay_method(body.pay_method)
-    sale = pos_repo.checkout(db, items,
-                             buyer.id if buyer else None,
-                             buyer.username if buyer else buyer_name,
+    sale = pos_repo.checkout(db, items, current.id, current.username,
                              holder, pay_method)
-    return {**sale, "wants_register_prompt": buyer is None}
+    return {**sale, "wants_register_prompt": False}
 
 
 @router.get("/sales")

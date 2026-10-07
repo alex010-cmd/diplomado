@@ -1,0 +1,9 @@
+# VPS FRONTEND: solo sirve la app React (el backend vive en el otro VPS).
+# Uso: ./start.sh http://10.0.128.10:8000
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env # BACKEND_URL=http://<IP-privada-del-BACK>:8000
+    ports:
+      - "80:80"

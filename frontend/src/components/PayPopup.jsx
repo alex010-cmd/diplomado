@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { detectBrand, getMemoryCard, saveMemoryCard } from '../services/cards.js'
+import { Ticket } from './Ticket.jsx'
 
 const METHODS = [
   { id: 'efectivo', label: 'Efectivo' },
@@ -22,6 +23,13 @@ export function PayPopup({ user, preview, lines, busy, error, onClose, onPay }) 
   const memCard = user ? getMemoryCard(`u:${user.username}`) : null
   const digits = card.replace(/\D/g, '')
   const isCard = method === 'tarjeta_debito' || method === 'tarjeta_credito'
+  const previewSale = {
+    ...preview,
+    id: 'PREVIEW',
+    buyer_name: user?.full_name || 'Cliente',
+    pay_method: method,
+    created_at: null
+  }
 
   const format = (v) => v.replace(/\D/g, '').slice(0, 19).replace(/(\d{4})(?=\d)/g, '$1 ')
 
@@ -46,17 +54,10 @@ export function PayPopup({ user, preview, lines, busy, error, onClose, onPay }) 
   }
 
   return (
-    <div style={s.overlay}>
-      <div style={s.modal}>
+    <div className="modal-overlay">
+      <div className="modal" role="dialog" aria-modal="true">
         <h3>Ticket de compra</h3>
-        <pre style={s.pre}>
-          {lines.map((l) => `${l.product} x${l.qty} = $${(l.unit_price * l.qty).toFixed(2)}`).join('\n')}
-          {'\n--------------------------------\n'}
-          Subtotal: ${preview.subtotal}{'\n'}
-          Descuento: ${preview.discount}{preview.detalle ? ` (${preview.detalle})` : ''}{'\n'}
-          IVA 16%: ${preview.iva}{'\n'}
-          TOTAL: ${preview.total}
-        </pre>
+        <Ticket sale={previewSale} lines={lines} />
 
         <h4>Metodo de pago</h4>
         {METHODS.map((m) => (
@@ -66,9 +67,9 @@ export function PayPopup({ user, preview, lines, busy, error, onClose, onPay }) 
         ))}
 
         {isCard && (
-          <div style={s.cardBox}>
+          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
             {memCard && !digits && (
-              <p style={s.ok}>Usaras tu tarjeta guardada en memoria: {memCard.brand} terminacion {memCard.last4} (se borra al recargar).</p>
+              <p className="ok">Usaras tu tarjeta guardada en memoria: {memCard.brand} terminacion {memCard.last4} (se borra al recargar).</p>
             )}
             <label>Numero de tarjeta (demo)
               <input value={card} onChange={(e) => setCard(format(e.target.value))}
@@ -77,7 +78,7 @@ export function PayPopup({ user, preview, lines, busy, error, onClose, onPay }) 
             <label>Nombre del titular
               <input value={cardName} onChange={(e) => setCardName(e.target.value)} placeholder="Como aparece en la tarjeta" />
             </label>
-            <div style={s.alert}>
+            <div className="alert-test">
               <b>AVISO IMPORTANTE — PAGINA DE PRUEBA.</b> Este sistema es un
               prototipo escolar sin procesamiento real de pagos. <b>Por ningun
               motivo ingreses informacion real de tarjetas.</b> Usa solo numeros
@@ -85,12 +86,12 @@ export function PayPopup({ user, preview, lines, busy, error, onClose, onPay }) 
               la memoria de esta pestana y <b>se borra al recargar la pagina</b>;
               nunca se envia al servidor ni se guarda en la base de datos.
             </div>
-            <label style={s.check}>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
               <input type="checkbox" checked={ackTest} onChange={(e) => setAckTest(e.target.checked)} />
               Entiendo que es una pagina de prueba y no usare datos reales.
             </label>
             {user && (
-              <label style={s.check}>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
                 <input type="checkbox" checked={saveCard} onChange={(e) => setSaveCard(e.target.checked)} />
                 Guardar tarjeta en memoria para futuras compras (se borra al recargar).
               </label>
@@ -98,7 +99,7 @@ export function PayPopup({ user, preview, lines, busy, error, onClose, onPay }) 
           </div>
         )}
 
-        {(localErr || error) && <p style={s.err}>{localErr || error}</p>}
+        {(localErr || error) && <p className="err">{localErr || error}</p>}
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
           <button disabled={busy} onClick={pay}>
             {busy ? 'Procesando...' : `Pagar $${preview.total}`}
@@ -108,17 +109,4 @@ export function PayPopup({ user, preview, lines, busy, error, onClose, onPay }) 
       </div>
     </div>
   )
-}
-
-const s = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)',
-             display: 'grid', placeItems: 'center', zIndex: 50, padding: 12 },
-  modal: { background: '#fff', borderRadius: 14, padding: 20, maxWidth: 480,
-           width: '100%', maxHeight: '90vh', overflowY: 'auto' },
-  pre: { background: '#f8fafc', padding: 12, borderRadius: 8, whiteSpace: 'pre-wrap' },
-  cardBox: { display: 'grid', gap: 8, marginTop: 8 },
-  alert: { background: '#fef3c7', border: '2px solid #d97706', borderRadius: 8, padding: 10 },
-  check: { display: 'flex', gap: 6, alignItems: 'flex-start' },
-  err: { background: '#fee2e2', padding: 8, borderRadius: 8 },
-  ok: { background: '#dcfce7', padding: 8, borderRadius: 8 }
 }

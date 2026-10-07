@@ -26,6 +26,7 @@ def _sp_error(exc: DBAPIError, default: str) -> HTTPException:
                          ("DESCUENTO_NO_EXISTE", 404),
                          ("ROL_INVALIDO", 400), ("DATOS_INVALIDOS", 400),
                          ("IMAGEN_INVALIDA", 400),
+                         ("DEPARTAMENTO_INVALIDO", 400),
                          ("STOCK_INVALIDO", 400)):
         if code in msg:
             return HTTPException(status, msg.split("\n")[0])
@@ -36,7 +37,8 @@ def _product(r) -> dict:
     return {"id": r.o_id, "name": r.o_name, "sku": r.o_sku,
             "price": float(r.o_price), "stock": r.o_stock,
             "category": r.o_category, "discount": float(r.o_desc or 0),
-            "image_url": r.o_image or ""}
+            "image_url": r.o_image or "",
+            "description": r.o_features or ""}
 
 
 def list_products(db: Session) -> list[dict]:
@@ -51,13 +53,14 @@ def list_available(db: Session) -> list[dict]:
     return [_product(r) for r in rows]
 
 
-def create_product(db: Session, name: str, sku: str, price: float,
-                   stock: int, category: str, image_url: str = "") -> int:
+def create_product(db: Session, name: str, sku: str | None, price: float,
+                   stock: int, category: str, image_url: str = "",
+                   description: str = "") -> int:
     try:
         pid = db.execute(
-            text("SELECT sp_create_product(:n,:s,:p,:t,:c,:i)"),
+            text("SELECT sp_create_product(:n,:s,:p,:t,:c,:i,:d)"),
             {"n": name, "s": sku, "p": price, "t": stock,
-             "c": category, "i": image_url}).scalar()
+             "c": category, "i": image_url, "d": description}).scalar()
         db.commit()
         return pid
     except DBAPIError as exc:
@@ -66,13 +69,14 @@ def create_product(db: Session, name: str, sku: str, price: float,
 
 
 def update_product(db: Session, product_id: int, name: str | None,
-                   price: float | None, image_url: str | None) -> dict:
-    """Admin edita nombre, precio e imagen (None = sin cambio)."""
+                   price: float | None, image_url: str | None,
+                   description: str | None = None) -> dict:
+    """Admin edita nombre, precio, imagen y caracteristicas."""
     try:
         db.execute(
-            text("SELECT sp_update_product(:i,:n,:p,:m)"),
+            text("SELECT sp_update_product(:i,:n,:p,:m,:d)"),
             {"i": product_id, "n": name, "p": price,
-             "m": image_url})
+             "m": image_url, "d": description})
         db.commit()
         row = db.execute(
             text("SELECT * FROM sp_list_products() WHERE o_id = :i"),
@@ -124,6 +128,24 @@ def release(db: Session, holder: str, product_id: int,
     except DBAPIError as exc:
         db.rollback()
         raise _sp_error(exc, "No se pudo liberar el producto")
+
+
+def my_cart(db: Session, holder: str) -> list[dict]:
+    """Carrito persistente del holder (reservas vigentes)."""
+    rows = db.execute(
+        text("SELECT * FROM sp_my_reservations(:h)"),
+        {"h": holder}).fetchall()
+    return [{"product_id": r.o_product_id, "qty": r.o_qty}
+            for r in rows]
+
+
+def move_cart(db: Session, from_holder: str, to_holder: str) -> dict:
+    """Migra carrito de invitado a la cuenta al iniciar sesion."""
+    n = db.execute(
+        text("SELECT sp_move_reservations(:f,:t)"),
+        {"f": from_holder, "t": to_holder}).scalar()
+    db.commit()
+    return {"moved": n or 0}
 
 
 def preview(db: Session, items: list[dict],
@@ -216,12 +238,25 @@ def sale_items(db: Session, sale_id: int, role: str,
         raise _sp_error(exc, "No se pudo consultar la venta")
 
 
+def list_departments(db: Session) -> list[dict]:
+    rows = db.execute(text("SELECT * FROM sp_list_departments()")).fetchall()
+    return [{"id": r.o_id, "name": r.o_name} for r in rows]
+
+
+def departments_with_counts(db: Session) -> list[dict]:
+    rows = db.execute(
+        text("SELECT * FROM sp_departments_with_counts()")).fetchall()
+    return [{"id": r.o_id, "name": r.o_name, "products": r.o_products}
+            for r in rows]
+
+
 def low_stock(db: Session) -> list[dict]:
     """Alerta automatica: productos con menos de 5 (notifica al admin)."""
     rows = db.execute(text("SELECT * FROM sp_low_stock()")).fetchall()
     return [{"id": r.o_id, "name": r.o_name, "sku": r.o_sku,
              "price": float(r.o_price), "stock": r.o_stock,
-             "category": r.o_category, "image_url": r.o_image or ""}
+             "category": r.o_category, "image_url": r.o_image or "",
+             "description": r.o_features or ""}
             for r in rows]
 
 

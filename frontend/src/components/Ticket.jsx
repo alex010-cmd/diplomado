@@ -1,9 +1,15 @@
 import React from 'react'
 
+const PAY_LABELS = { efectivo: 'Efectivo', tarjeta_debito: 'Tarjeta de debito',
+  tarjeta_credito: 'Tarjeta de credito', transferencia: 'Transferencia' }
+const payLabel = (m) => PAY_LABELS[m] || 'Efectivo'
+
 // Ticket de compra: se muestra en pantalla y se puede descargar/imprimir.
 export function ticketText(sale, lines) {
   const L = []
-  L.push('========== MINI-MARKET ==========')
+  L.push('================================')
+  L.push('          MINI-MARKET           ')
+  L.push('================================')
   L.push(`Ticket #${sale.id}   ${sale.created_at || ''}`)
   L.push(`Comprador: ${sale.buyer_name}`)
   L.push('--------------------------------')
@@ -17,13 +23,14 @@ export function ticketText(sale, lines) {
   L.push(`IVA 16%:   $${sale.iva || 0}`)
   L.push(`TOTAL:     $${sale.total}`)
   L.push(`Pago: ${payLabel(sale.pay_method)}`)
-  L.push('Gracias por su compra')
+  L.push('================================')
+  L.push('   Gracias por su compra <3')
   return L.join('\n')
 }
 
-const PAY_LABELS = { efectivo: 'Efectivo', tarjeta_debito: 'Tarjeta de debito',
-  tarjeta_credito: 'Tarjeta de credito', transferencia: 'Transferencia' }
-const payLabel = (m) => PAY_LABELS[m] || 'Efectivo'
+function fmtDate(iso) {
+  try { return iso ? new Date(iso).toLocaleString() : '' } catch { return '' }
+}
 
 export function Ticket({ sale, lines }) {
   const txt = ticketText(sale, lines)
@@ -39,25 +46,59 @@ export function Ticket({ sale, lines }) {
 
   const print = () => {
     const w = window.open('', '_blank')
-    w.document.write(`<pre>${txt.replace(/</g, '&lt;')}</pre>`)
+    w.document.write(`<pre style="font-family:monospace">${txt.replace(/</g, '&lt;')}</pre>`)
     w.document.close()
     w.print()
   }
 
   return (
-    <div style={s.box}>
-      <h3>Ticket #{sale.id}</h3>
-      <pre style={s.pre}>{txt}</pre>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={download}>Descargar ticket</button>
+    <div className="ticket">
+      <div className="ticket-head">
+        <div className="ticket-brand">Mini-Market</div>
+        <div className="ticket-sub">Comprobante de compra</div>
+        <div className="ticket-meta">
+          <span>Ticket #{sale.id}</span>
+          <span>{fmtDate(sale.created_at)}</span>
+        </div>
+        <div className="ticket-buyer">{sale.buyer_name}</div>
+      </div>
+
+      <div className="ticket-items">
+        {lines.map((it, idx) => (
+          <div key={idx} className="ticket-item">
+            <div className="ti-name">{it.product}</div>
+            <div className="ti-qty">{it.qty} x ${it.unit_price}</div>
+            <div className="ti-amount">${(it.qty * it.unit_price).toFixed(2)}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="ticket-totals">
+        <div><span>Subtotal</span><b>${sale.subtotal}</b></div>
+        <div className="disc">
+          <span>Descuento{sale.detalle ? ` · ${sale.detalle}` : ''}</span>
+          <b>−${sale.discount}</b>
+        </div>
+        <div><span>IVA 16%</span><b>${sale.iva || 0}</b></div>
+      </div>
+
+      <div className="ticket-total">
+        <span>TOTAL</span>
+        <b>${sale.total}</b>
+      </div>
+
+      <div className="ticket-foot">
+        <span className="pay-chip">{payLabel(sale.pay_method)}</span>
+        <span className="ticket-thanks">Gracias por su compra</span>
+      </div>
+
+      <div className="ticket-actions no-print">
+        <button className="btn-primary" onClick={download}>Descargar ticket</button>
         <button onClick={print}>Imprimir</button>
       </div>
-      {sale.discount > 0 && <small>Se aplico 15% por primera compra de cliente registrado.</small>}
+      {sale.discount > 0 && (
+        <small className="muted">Se aplico descuento automatico en esta compra.</small>
+      )}
     </div>
   )
-}
-
-const s = {
-  box: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, maxWidth: 420 },
-  pre: { background: '#f8fafc', padding: 12, borderRadius: 8, whiteSpace: 'pre-wrap' }
 }

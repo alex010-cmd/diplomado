@@ -43,6 +43,9 @@ ALTER TABLE products ALTER COLUMN category SET NOT NULL;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
 UPDATE products SET image_url = '' WHERE image_url IS NULL;
 ALTER TABLE products ALTER COLUMN image_url SET DEFAULT '';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+UPDATE products SET description = '' WHERE description IS NULL;
+ALTER TABLE products ALTER COLUMN description SET DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS sales (
   id         SERIAL PRIMARY KEY,
@@ -72,6 +75,62 @@ DELETE FROM users WHERE role = 'cajero';
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check
   CHECK (role IN ('admin','cliente'));
+
+-- Departamentos/areas de la tienda (el admin elige uno al dar de alta)
+CREATE TABLE IF NOT EXISTS departments (
+  id     SERIAL PRIMARY KEY,
+  name   VARCHAR(60) NOT NULL UNIQUE,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  prefix VARCHAR(10) NOT NULL DEFAULT ''
+);
+ALTER TABLE departments ADD COLUMN IF NOT EXISTS prefix VARCHAR(10);
+UPDATE departments SET prefix = 'ALI' WHERE name = 'Alimentos y Abarrotes' AND (prefix IS NULL OR prefix = '');
+UPDATE departments SET prefix = 'BEB' WHERE name = 'Bebidas y Botanas' AND (prefix IS NULL OR prefix = '');
+UPDATE departments SET prefix = 'HIG' WHERE name = 'Higiene y Limpieza' AND (prefix IS NULL OR prefix = '');
+UPDATE departments SET prefix = 'LAC' WHERE name = 'Lacteos y Frescos' AND (prefix IS NULL OR prefix = '');
+
+CREATE OR REPLACE FUNCTION sp_list_departments()
+RETURNS TABLE (o_id INT, o_name VARCHAR)
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  RETURN QUERY SELECT d.id, d.name FROM departments d
+               WHERE d.active ORDER BY d.name;
+END;
+$$;
+
+-- Departamentos con total de productos (para el popup de descuentos)
+CREATE OR REPLACE FUNCTION sp_departments_with_counts()
+RETURNS TABLE (o_id INT, o_name VARCHAR, o_products BIGINT)
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  RETURN QUERY SELECT d.id, d.name, COUNT(p.id)
+               FROM departments d LEFT JOIN products p ON p.category = d.name
+               WHERE d.active GROUP BY d.id ORDER BY d.name;
+END;
+$$;
+
+-- SKU automatico: PREFIJO-NOMBRE-STOCK (unico; sufijo -2, -3 si choca)
+CREATE OR REPLACE FUNCTION sp_make_sku(p_dept TEXT, p_name TEXT,
+                                       p_stock INT, p_exclude_id INT DEFAULT NULL)
+RETURNS TEXT
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_slug TEXT; v_pfx TEXT; v_base TEXT; v_try TEXT; v_n INT := 1;
+BEGIN
+  SELECT d.prefix INTO v_pfx FROM departments d WHERE d.name = p_dept;
+  v_pfx := COALESCE(NULLIF(v_pfx,''), 'PROD');
+  v_slug := upper(substring(regexp_replace(COALESCE(p_name,''),
+                             '[^A-Za-z0-9]', '', 'g') from 1 for 12));
+  IF v_slug = '' THEN v_slug := 'PROD'; END IF;
+  v_base := v_pfx || '-' || v_slug || '-' || GREATEST(p_stock, 0);
+  v_try := v_base;
+  WHILE EXISTS (SELECT 1 FROM products p WHERE p.sku = v_try
+                AND (p_exclude_id IS NULL OR p.id <> p_exclude_id)) LOOP
+    v_n := v_n + 1;
+    v_try := v_base || '-' || v_n;
+  END LOOP;
+  RETURN v_try;
+END;
+$$;
 
 -- Descuentos del admin por seccion o producto (activos/inactivos)
 CREATE TABLE IF NOT EXISTS discounts (
@@ -207,11 +266,12 @@ DROP FUNCTION IF EXISTS sp_list_products();
 CREATE OR REPLACE FUNCTION sp_list_products()
 RETURNS TABLE (o_id INT, o_name VARCHAR, o_sku VARCHAR,
                o_price NUMERIC, o_stock INT, o_category VARCHAR,
-               o_desc NUMERIC, o_image TEXT)
+               o_desc NUMERIC, o_image TEXT, o_features TEXT)
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   RETURN QUERY SELECT p.id, p.name, p.sku, p.price, p.stock, p.category,
-                      sp_product_discount(p.sku, p.category), p.image_url
+                      sp_product_discount(p.sku, p.category), p.image_url,
+                      p.description
                FROM products p ORDER BY p.category, p.id;
 END;
 $$;
@@ -221,11 +281,12 @@ DROP FUNCTION IF EXISTS sp_list_products_available();
 CREATE OR REPLACE FUNCTION sp_list_products_available()
 RETURNS TABLE (o_id INT, o_name VARCHAR, o_sku VARCHAR,
                o_price NUMERIC, o_stock INT, o_category VARCHAR,
-               o_desc NUMERIC, o_image TEXT)
+               o_desc NUMERIC, o_image TEXT, o_features TEXT)
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   RETURN QUERY SELECT p.id, p.name, p.sku, p.price, p.stock, p.category,
-                      sp_product_discount(p.sku, p.category), p.image_url
+                      sp_product_discount(p.sku, p.category), p.image_url,
+                      p.description
                FROM products p WHERE p.stock > 0
                ORDER BY p.category, p.id;
 END;
@@ -233,10 +294,13 @@ $$;
 
 DROP FUNCTION IF EXISTS sp_create_product(TEXT,TEXT,NUMERIC,INT);
 DROP FUNCTION IF EXISTS sp_create_product(TEXT,TEXT,NUMERIC,INT,TEXT);
+DROP FUNCTION IF EXISTS sp_create_product(TEXT,TEXT,NUMERIC,INT,TEXT,TEXT);
+DROP FUNCTION IF EXISTS sp_create_product(TEXT,TEXT,NUMERIC,INT,TEXT,TEXT,TEXT);
 CREATE OR REPLACE FUNCTION sp_create_product(p_name TEXT, p_sku TEXT,
                                              p_price NUMERIC, p_stock INT,
                                              p_category TEXT DEFAULT 'General',
-                                             p_image_url TEXT DEFAULT '')
+                                             p_image_url TEXT DEFAULT '',
+                                             p_description TEXT DEFAULT '')
 RETURNS INT
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_id INT;
@@ -244,30 +308,47 @@ BEGIN
   IF p_price < 0 OR p_stock < 0 THEN
     RAISE EXCEPTION 'DATOS_INVALIDOS:precio/stock negativos';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM departments
+                 WHERE name = p_category AND active) THEN
+    RAISE EXCEPTION 'DEPARTAMENTO_INVALIDO:%', p_category;
+  END IF;
   IF p_image_url <> '' AND (length(p_image_url) > 500
       OR (p_image_url !~ '^https?://\S+$'
           AND p_image_url !~ '^/images/[A-Za-z0-9._-]+$')) THEN
     RAISE EXCEPTION 'IMAGEN_INVALIDA:url http(s) o /images/... max 500';
   END IF;
-  IF EXISTS (SELECT 1 FROM products WHERE sku = p_sku) THEN
+  -- SKU autoasignado (depto + producto + stock) si no se envia uno
+  IF p_sku IS NULL OR p_sku = '' THEN
+    p_sku := sp_make_sku(p_category, p_name, p_stock, NULL);
+  ELSIF EXISTS (SELECT 1 FROM products WHERE sku = p_sku) THEN
     RAISE EXCEPTION 'SKU_EXISTE:%', p_sku;
   END IF;
-  INSERT INTO products(name, sku, price, stock, category, image_url)
-  VALUES (p_name, p_sku, p_price, p_stock,
-          COALESCE(NULLIF(p_category,''),'General'),
-          COALESCE(p_image_url,''))
+  INSERT INTO products(name, sku, price, stock, category, image_url,
+                       description)
+  VALUES (p_name, p_sku, p_price, p_stock, p_category,
+          COALESCE(p_image_url,''), COALESCE(p_description,''))
   RETURNING id INTO v_id;
   RETURN v_id;
 END;
 $$;
 
--- Edicion admin: nombre, precio e imagen (NULL = sin cambio)
+-- Edicion admin: nombre, precio, imagen y caracteristicas (NULL = sin cambio).
+-- El SKU se reasigna solo (depto + producto + stock) y los descuentos
+-- por producto siguen al nuevo SKU.
+DROP FUNCTION IF EXISTS sp_update_product(INT,TEXT,NUMERIC,TEXT);
+DROP FUNCTION IF EXISTS sp_update_product(INT,TEXT,NUMERIC,TEXT,TEXT);
 CREATE OR REPLACE FUNCTION sp_update_product(p_id INT, p_name TEXT DEFAULT NULL,
                                              p_price NUMERIC DEFAULT NULL,
-                                             p_image_url TEXT DEFAULT NULL)
+                                             p_image_url TEXT DEFAULT NULL,
+                                             p_description TEXT DEFAULT NULL)
 RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_old TEXT; v_new TEXT;
 BEGIN
+  SELECT p.sku INTO v_old FROM products p WHERE p.id = p_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'PRODUCTO_NO_EXISTE:%', p_id;
+  END IF;
   IF p_name IS NOT NULL AND (p_name = '' OR length(p_name) > 120) THEN
     RAISE EXCEPTION 'DATOS_INVALIDOS:nombre';
   END IF;
@@ -280,13 +361,26 @@ BEGIN
               AND p_image_url !~ '^/images/[A-Za-z0-9._-]+$')) THEN
     RAISE EXCEPTION 'IMAGEN_INVALIDA:url http(s) o /images/... max 500';
   END IF;
+  IF p_description IS NOT NULL AND length(p_description) > 300 THEN
+    RAISE EXCEPTION 'DATOS_INVALIDOS:caracteristicas max 300';
+  END IF;
   UPDATE products
   SET name = COALESCE(p_name, name),
       price = COALESCE(p_price, price),
-      image_url = COALESCE(p_image_url, image_url)
+      image_url = COALESCE(p_image_url, image_url),
+      description = COALESCE(p_description, description)
   WHERE id = p_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'PRODUCTO_NO_EXISTE:%', p_id;
+  END IF;
+  -- Reasigna SKU automatico y migra descuentos por producto al nuevo SKU
+  UPDATE products p
+  SET sku = sp_make_sku(p.category, p.name, p.stock, p.id)
+  WHERE p.id = p_id;
+  SELECT p.sku INTO v_new FROM products p WHERE p.id = p_id;
+  IF v_old IS DISTINCT FROM v_new THEN
+    UPDATE discounts SET target = v_new
+    WHERE scope = 'producto' AND target = v_old;
   END IF;
 END;
 $$;
@@ -295,7 +389,7 @@ DROP FUNCTION IF EXISTS sp_set_stock(INT,INT);
 CREATE OR REPLACE FUNCTION sp_set_stock(p_product_id INT, p_stock INT)
 RETURNS TABLE (o_id INT, o_name VARCHAR, o_sku VARCHAR,
                o_price NUMERIC, o_stock INT, o_category VARCHAR,
-               o_desc NUMERIC, o_image TEXT)
+               o_desc NUMERIC, o_image TEXT, o_features TEXT)
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   IF p_stock < 0 THEN
@@ -306,7 +400,8 @@ BEGIN
     RAISE EXCEPTION 'PRODUCTO_NO_EXISTE:%', p_product_id;
   END IF;
   RETURN QUERY SELECT p.id, p.name, p.sku, p.price, p.stock, p.category,
-                      sp_product_discount(p.sku, p.category), p.image_url
+                      sp_product_discount(p.sku, p.category), p.image_url,
+                      p.description
                FROM products p WHERE p.id = p_product_id;
 END;
 $$;
@@ -455,6 +550,39 @@ BEGIN
   RETURN QUERY SELECT ROUND(v_subtotal,2), ROUND(v_admin,2), v_first_d,
                       ROUND(v_admin + v_first_d,2), v_iva,
                       ROUND(v_base + v_iva,2), v_detalle;
+END;
+$$;
+
+-- Carrito persistente: lo apartado por un holder (sobrevive navegacion/logout)
+CREATE OR REPLACE FUNCTION sp_my_reservations(p_holder TEXT)
+RETURNS TABLE (o_product_id INT, o_qty INT)
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  PERFORM sp_cleanup_reservations();
+  RETURN QUERY SELECT r.product_id, r.qty FROM reservations r
+               WHERE r.holder = p_holder ORDER BY r.product_id;
+END;
+$$;
+
+-- Migra el carrito de invitado (g:xxx) a la cuenta (u:user) al iniciar sesion
+CREATE OR REPLACE FUNCTION sp_move_reservations(p_from TEXT, p_to TEXT)
+RETURNS INT
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_moved INT := 0; rec RECORD;
+BEGIN
+  PERFORM sp_cleanup_reservations();
+  FOR rec IN SELECT r.product_id, r.qty FROM reservations r
+             WHERE r.holder = p_from LOOP
+    INSERT INTO reservations(holder, product_id, qty)
+    VALUES (p_to, rec.product_id, rec.qty)
+    ON CONFLICT (holder, product_id)
+    DO UPDATE SET qty = reservations.qty + EXCLUDED.qty,
+                  updated_at = now();
+    DELETE FROM reservations
+      WHERE holder = p_from AND product_id = rec.product_id;
+    v_moved := v_moved + 1;
+  END LOOP;
+  RETURN v_moved;
 END;
 $$;
 
@@ -676,6 +804,11 @@ BEGIN
   IF p_scope NOT IN ('seccion','producto') THEN
     RAISE EXCEPTION 'ALCANCE_INVALIDO:%', p_scope;
   END IF;
+  IF p_scope = 'seccion'
+     AND NOT EXISTS (SELECT 1 FROM departments
+                     WHERE name = p_target AND active) THEN
+    RAISE EXCEPTION 'DEPARTAMENTO_INVALIDO:%', p_target;
+  END IF;
   IF p_percent <= 0 OR p_percent > 90 THEN
     RAISE EXCEPTION 'DESCUENTO_INVALIDO:1-90';
   END IF;
@@ -738,11 +871,11 @@ DROP FUNCTION IF EXISTS sp_low_stock();
 CREATE OR REPLACE FUNCTION sp_low_stock()
 RETURNS TABLE (o_id INT, o_name VARCHAR, o_sku VARCHAR,
                o_price NUMERIC, o_stock INT, o_category VARCHAR,
-               o_image TEXT)
+               o_image TEXT, o_features TEXT)
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   RETURN QUERY SELECT p.id, p.name, p.sku, p.price, p.stock, p.category,
-                      p.image_url
+                      p.image_url, p.description
                FROM products p WHERE p.stock < 5 ORDER BY p.stock, p.id;
 END;
 $$;
@@ -769,6 +902,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
 -- ---------- Seed via procedimientos (no INSERTs directos) ----------
 DO $$
 BEGIN
+  INSERT INTO departments(name, prefix) VALUES
+    ('Alimentos y Abarrotes','ALI'), ('Bebidas y Botanas','BEB'),
+    ('Higiene y Limpieza','HIG'), ('Lacteos y Frescos','LAC')
+  ON CONFLICT (name) DO UPDATE SET prefix = EXCLUDED.prefix;
   IF NOT EXISTS (SELECT 1 FROM users WHERE username = 'admin') THEN
     -- hash bcrypt de "Admin123*" (generado con lib bcrypt)
     PERFORM sp_create_user('admin','Administrador',

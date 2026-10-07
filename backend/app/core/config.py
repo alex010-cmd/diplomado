@@ -16,6 +16,16 @@ class Settings(BaseSettings):
     IMAGE_DIR: str = "./uploads"
     IMAGE_QUOTA_MB: int = 50
     MAX_IMAGE_MB: int = 2
+    # Docs interactivas (/docs, /openapi.json): True en demo,
+    # False en produccion (no exponer inventario de la API)
+    ENABLE_DOCS: bool = True
+    # Permite arrancar con el JWT_SECRET de ejemplo (solo pruebas locales)
+    ALLOW_DEFAULT_JWT: bool = False
+
+    @property
+    def default_jwt(self) -> bool:
+        return self.JWT_SECRET == \
+            "cambia-este-secreto-en-produccion-min-32-chars"
 
     class Config:
         env_file = ".env"

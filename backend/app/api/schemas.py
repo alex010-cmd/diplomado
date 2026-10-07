@@ -52,6 +52,7 @@ class ProductOut(BaseModel):
     category: str = "General"
     discount: float = 0
     image_url: str = ""
+    description: str = ""
 
     class Config:
         from_attributes = True
@@ -59,17 +60,19 @@ class ProductOut(BaseModel):
 
 class ProductCreate(BaseModel):
     name: str
-    sku: str
+    sku: str = ""
     price: float
     stock: int = 0
     category: str = "General"
     image_url: str = ""
+    description: str = ""
 
 
 class ProductUpdate(BaseModel):
     name: str | None = None
     price: float | None = None
     image_url: str | None = None
+    description: str | None = None
 
 
 class StockUpdate(BaseModel):
@@ -96,6 +99,10 @@ class CartOp(BaseModel):
     holder: str
     product_id: int
     qty: int | None = None
+
+
+class MigrateRequest(BaseModel):
+    from_holder: str
 
 
 class SaleOut(BaseModel):
