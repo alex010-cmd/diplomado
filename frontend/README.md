@@ -12,6 +12,16 @@ Navegador → https://<dominio> (VPS Front, público)
 Así el navegador nunca toca la IP privada del backend, no hay CORS, y el
 certificado HTTPS solo vive aquí.
 
+## Requisitos (Ubuntu 22.04 / 24.04)
+
+```bash
+sudo apt update
+sudo apt install -y docker.io docker-compose-plugin git
+sudo systemctl enable --now docker
+# para usar docker sin sudo (reingresa sesion despues):
+sudo usermod -aG docker $USER
+```
+
 ## Clonar y correr (un comando)
 
 ```bash
@@ -68,9 +78,9 @@ Luego actualiza el back: `FRONTEND_ORIGIN=https://<tu-host>.ddns.net` y
 Con el proxy, la IP real del cliente solo se ve aquí. Instalación:
 
 ```bash
-# Amazon Linux 2023 (EPEL):
-sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
-sudo dnf install -y fail2ban
+# Ubuntu 22.04 / 24.04:
+sudo apt update
+sudo apt install -y fail2ban
 sudo cp fail2ban/jail.local /etc/fail2ban/jail.d/frontend.conf
 sudo cp fail2ban/filter.d/nginx-login.conf /etc/fail2ban/filter.d/
 sudo cp fail2ban/action.d/docker-iptables.conf /etc/fail2ban/action.d/
